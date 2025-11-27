@@ -1,0 +1,9 @@
+[project]
+name = "retail-analytics-copilot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "rank-bm25>=0.2.2",
+]

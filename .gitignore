@@ -1,0 +1,18 @@
+# Virtual Environments
+.retail/
+.venv/
+env/
+
+# Python Bytecode 
+__pycache__/
+*.pyc
+
+# The Database
+data/*.sqlite
+data/*.db
+
+# Tooling/System Files (Noise)
+uv.lock
+.python-version
+.DS_Store
+
