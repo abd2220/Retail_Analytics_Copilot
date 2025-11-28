@@ -19,7 +19,7 @@ The agent is implemented as a stateful graph (`agent/graph_hybrid.py`) with the 
 
 ## 🚀 DSPy Optimization Results
 
-We chose to optimize the **Router** module (`ClassifyQuestion`) because accurate routing is critical for the hybrid architecture. The small Phi-3.5 model struggled with complex SQL generation prompts, so we focused optimization where it was most effective.
+I chose to optimize the **Router** module (`ClassifyQuestion`) because accurate routing is critical for the hybrid architecture. The small Phi-3.5 model struggled with complex SQL generation prompts, so I focused optimization where it was most effective.
 
 **Training Setup:**
 - **Optimizer:** `BootstrapFewShot`
