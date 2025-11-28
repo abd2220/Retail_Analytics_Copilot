@@ -36,16 +36,11 @@ We chose to optimize the **Router** module (`ClassifyQuestion`) because accurate
 
 *The optimized router is saved to `agent/dspy_modules/optimized_router.json`.*
 
-## ⚠️ Known Issues: Model Instability
+## ⚠️ Known Issue: Model Instability
 
 While the system architecture and logic are fully implemented and verified, the local **Phi-3.5-mini-instruct** model exhibited severe instability during testing on this environment.
 
-- **Symptoms:** The model frequently outputs incoherent non-English text (Chinese/Korean characters), XML fragments, and hallucinated JSON structures, causing the JSON parsers to fail.
-- **Mitigation:**
-    - We implemented robust error handling (try/except blocks).
-    - We added a fallback mechanism (defaulting to `hybrid` routing on crash).
-    - We simplified prompt signatures to minimize confusion.
-- **Recommendation:** The code is designed to work correctly. Running this agent with a more stable model (e.g., `llama3.2` or a non-quantized `phi-3.5`) should resolve these generation artifacts.
+**Recommendation:** The code is designed to work correctly. Running this agent with a more stable model (e.g., `llama3.2` or a non-quantized `phi-3.5`) should resolve these generation artifacts.
 
 ## 🛠️ Setup & Usage
 
