@@ -1,7 +1,6 @@
 import dspy
 from typing import Literal
 
-# --- NEW SIGNATURE ---
 # 1. Search Query Generator
 class GenerateSearchQuery(dspy.Signature):
     """
@@ -14,17 +13,15 @@ class GenerateSearchQuery(dspy.Signature):
 # 2. Router Signature
 class ClassifyQuestion(dspy.Signature):
     """
-    You are a routing agent for a retail analytics system.
-    Your job is to decide the best strategy to answer the user's question.
+    Classify the question into exactly one category. Output ONLY the label, nothing else.
     
-    Strategies:
-    - 'rag': Use this for questions about static policies, definitions, definitions of KPIs, or marketing calendars (e.g., "return policy", "meaning of AOV", "dates for summer campaign"). No database access needed.
-    - 'sql': Use this for pure data questions where all math and entities are obvious standard database columns (e.g., "total revenue", "top 5 customers", "inventory counts").
-    - 'hybrid': Use this when the question refers to a specific named campaign, date range alias, or custom KPI defined in documents that requires looking up a definition FIRST before writing SQL (e.g., "sales during 'Summer Beverages'", "top margin products using the KPI doc definition").
+    - rag: Policy questions, return windows, KPI definitions (no database needed)
+    - sql: Pure data questions with standard columns (revenue, top customers, counts)
+    - hybrid: Questions referencing named campaigns or doc-defined formulas that need lookup first
     """
     
     question: str = dspy.InputField(desc="The user's natural language query.")
-    label: Literal['rag', 'sql', 'hybrid'] = dspy.OutputField(desc="The chosen strategy label.")
+    label: str = dspy.OutputField(desc="Output exactly one word: rag, sql, or hybrid")
 
 # 3. Planner Signature (For Hybrid/RAG extraction)
 class ExtractSearchTerms(dspy.Signature):
@@ -45,50 +42,31 @@ class ExtractSearchTerms(dspy.Signature):
 # 4. NL-to-SQL Signature
 class GenerateSQL(dspy.Signature):
     """
-    You are a SQLite expert for the Northwind database.
-    Generate a valid SQLite query to answer the question.
+    Generate SQLite query. Output ONLY the SQL, nothing else.
     
-    Rules:
-    1. Use ONLY the provided schema.
-    2. 'Order Details' table must be quoted as "Order Details".
-    3. Use the 'constraints' field for specific date ranges or formula logic.
-    4. Return ONLY the raw SQL query. No markdown formatting or explanations.
+    Table name: "Order Details" (with quotes and space)
+    Revenue: SUM(UnitPrice * Quantity * (1 - Discount))
     """
     
-    question: str = dspy.InputField(desc="The user's data question.")
-    schema: str = dspy.InputField(desc="Schema of available tables and columns.")
-    constraints: str = dspy.InputField(desc="Specific constraints (dates, formulas) from documentation.")
-    error_feedback: str = dspy.InputField(desc="Previous error message (if any) to fix.", default="")
+    question: str = dspy.InputField()
+    schema: str = dspy.InputField()
+    constraints: str = dspy.InputField()
+    error_feedback: str = dspy.InputField(default="")
     
-    sql_query: str = dspy.OutputField(desc="The executable SQLite query string.")
+    sql: str = dspy.OutputField(desc="SQL query only")
 
 # 5. Synthesizer Signature
 class GenerateAnswer(dspy.Signature):
     """
-    You are an information extraction machine. 
-    You MUST answer the question using ONLY the provided text from 'context' or 'sql_result'.
-    DO NOT use any outside knowledge or make assumptions.
-
-    Your process:
-    1.  Carefully read the user's question to understand the exact entities involved (e.g., "unopened Beverages", "return window").
-    2.  Scan the 'context' for the single sentence that contains ALL of these entities.
-    3.  Extract the specific value (e.g., a number, a name) from that exact sentence.
-    4.  If no sentence contains the required information, state that the information is not available.
-
-    Example:
-    Question: "return window for unopened Beverages"
-    Context: "...- Perishables: 3-7 days. ...- Beverages unopened: 14 days. ...- Non-perishables: 30 days."
-    Your thought process: The sentence "- Beverages unopened: 14 days." matches all the keywords. The number is 14.
-
-    The 'answer' field must strictly match the `format_hint`.
-    The 'explanation' should be 1-2 sentences explaining exactly which document and sentence you used.
+    Answer question using data. Match format_hint exactly.
+    Use sql_result if not empty, else use context.
     """
     
     question: str = dspy.InputField()
-    context: str = dspy.InputField(desc="Retrieved text context (if any).")
-    sql_query: str = dspy.InputField(desc="The query that was run.")
-    sql_result: str = dspy.InputField(desc="The rows returned by the database.")
-    format_hint: str = dspy.InputField(desc="The required format (int, float, list, etc).")
+    context: str = dspy.InputField()
+    sql_query: str = dspy.InputField()
+    sql_result: str = dspy.InputField()
+    format_hint: str = dspy.InputField()
     
-    answer: str = dspy.OutputField(desc="The precise value matching the format hint.")
-    explanation: str = dspy.OutputField(desc="A brief justification (max 2 sentences).")
+    answer: str = dspy.OutputField()
+    why: str = dspy.OutputField(desc="1-2 sentences")

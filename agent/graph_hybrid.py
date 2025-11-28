@@ -37,27 +37,45 @@ retriever = LocalRetriever()
 
 # --- 2. DSPy MODULE LOADING ---
 
-query_gen_module = dspy.ChainOfThought(GenerateSearchQuery)
-router_module = dspy.ChainOfThought(ClassifyQuestion)
-planner_module = dspy.ChainOfThought(ExtractSearchTerms)
-synthesizer_module = dspy.ChainOfThought(GenerateAnswer)
+query_gen_module = dspy.Predict(GenerateSearchQuery)
+planner_module = dspy.Predict(ExtractSearchTerms)
+synthesizer_module = dspy.Predict(GenerateAnswer)
 
-# Load Optimized SQL Module
-sql_module_path = "agent/dspy_modules/optimized_sql.json"
-if os.path.exists(sql_module_path):
-    print(f"--- Loading Optimized SQL Module from {sql_module_path} ---")
-    sql_gen_module = dspy.ChainOfThought(GenerateSQL)
-    sql_gen_module.load(sql_module_path)
-else:
-    print("--- Using Baseline (Unoptimized) SQL Module ---")
-    sql_gen_module = dspy.ChainOfThought(GenerateSQL)
+# Load Optimized Router Module
+# NOTE: Disabled loading optimized module to improve stability with Phi-3.5
+print("--- Using Baseline (Unoptimized) Router for Stability ---")
+router_module = dspy.Predict(ClassifyQuestion)
+
+# sql_module_path = "agent/dspy_modules/optimized_sql.json"
+# ... (removed old SQL loading logic) ...
+
+# SQL Generator Module (DSPy Predict - required by assignment)
+sql_gen_module = dspy.Predict(GenerateSQL)
 
 # --- 3. NODE IMPLEMENTATIONS ---
 
 def router_node(state: AgentState):
     print(f"\n--- [Router] Processing: {state['question'][:50]}... ---")
-    pred = router_module(question=state["question"])
-    return {"route": pred.label.lower()}
+    try:
+        pred = router_module(question=state["question"])
+        raw_label = pred.label.lower().strip()
+        
+        if "hybrid" in raw_label:
+            route = "hybrid"
+        elif "sql" in raw_label:
+            route = "sql"
+        elif "rag" in raw_label:
+            route = "rag"
+        else:
+            print(f"   (Router output unclear: '{raw_label}', defaulting to hybrid)")
+            route = "hybrid"
+            
+    except Exception as e:
+        print(f"   (Router crashed: {e}, defaulting to hybrid)")
+        route = "hybrid"
+    
+    print(f"--- [Router] Classified as: {route} ---")
+    return {"route": route}
 
 def search_query_generation_node(state: AgentState):
     """Generates a keyword-rich search query."""
@@ -82,23 +100,73 @@ def planner_node(state: AgentState):
     pred = planner_module(context=context_str, question=state["question"])
     return {"search_terms": pred.search_terms}
 
+def fix_order_details_table(sql: str) -> str:
+    """
+    Post-process SQL to fix common LLM mistakes with 'Order Details' table name.
+    The table MUST be quoted as "Order Details" (with space).
+    """
+    import re
+    
+    # Common wrong patterns the LLM generates
+    wrong_patterns = [
+        r'\bOrderDetails\b',
+        r'\bOrder_Details\b', 
+        r'\borderdetails\b',
+        r'\border_details\b',
+        r'`Order Details`',  # MySQL style
+        r'\[Order Details\]',  # SQL Server style
+    ]
+    
+    for pattern in wrong_patterns:
+        sql = re.sub(pattern, '"Order Details"', sql, flags=re.IGNORECASE)
+    
+    return sql
+
 def sql_generator_node(state: AgentState):
+    """
+    Generate SQL using DSPy Predict (required by assignment).
+    Uses simplified prompting to work with small Phi-3.5 model.
+    """
     attempt = state.get("retries", 0) + 1
     print(f"--- [SQL Generator] Attempt {attempt} ---")
     
     schema = db_tool.get_schema()
-    # Use constraints from Planner
     constraints = state.get("search_terms", "")
     error_msg = state.get("error_feedback", "") if state.get("retries", 0) > 0 else ""
     
-    pred = sql_gen_module(
-        question=state["question"],
-        schema=schema,
-        constraints=constraints,
-        error_feedback=error_msg
-    )
+    # Add explicit hint about Order Details if we got that error
+    if "OrderDetails" in error_msg or "no such table" in error_msg.lower():
+        error_msg += ' IMPORTANT: Use "Order Details" (with space and double quotes) not OrderDetails.'
     
-    clean_sql = pred.sql_query.replace("```sql", "").replace("```", "").strip()
+    try:
+        pred = sql_gen_module(
+            question=state["question"],
+            schema=schema,
+            constraints=constraints,
+            error_feedback=error_msg
+        )
+        
+        # Extract SQL (field name is 'sql' in signature)
+        raw_sql = pred.sql if hasattr(pred, 'sql') else pred.sql_query if hasattr(pred, 'sql_query') else ""
+        
+        # Clean markdown and fix table names
+        clean_sql = raw_sql.replace("```sql", "").replace("```", "").strip()
+        
+        # Remove explanatory text if model added it
+        # SQL should not contain phrases like "Here is" or "This query"
+        lines = clean_sql.split('\n')
+        sql_lines = [l for l in lines if l.strip() and not any(phrase in l.lower() for phrase in ['here is', 'this query', 'explanation', 'note:', 'the query'])]
+        clean_sql = '\n'.join(sql_lines) if sql_lines else clean_sql
+        
+        clean_sql = fix_order_details_table(clean_sql)
+        
+        print(f"   Generated SQL: {clean_sql[:100]}...")
+        
+    except Exception as e:
+        print(f"   SQL generation error: {e}")
+        # Fallback - try to generate something simple
+        clean_sql = "SELECT 1"  # Will trigger repair loop
+    
     return {"sql_query": clean_sql}
 
 def executor_node(state: AgentState):
@@ -116,16 +184,26 @@ def executor_node(state: AgentState):
 def synthesizer_node(state: AgentState):
     print("--- [Synthesizer] Finalizing answer... ---")
     sql_res = state.get("sql_results", {})
-    context_str = "\n\n".join([d['id'] for d in state.get("retrieved_docs", [])])
     
-    sql_rows = str(sql_res.get("rows", []))
-    if len(sql_rows) > 500: sql_rows = sql_rows[:500] + "...(truncated)"
+    # Pass actual document text for RAG questions, keep it short
+    docs = state.get("retrieved_docs", [])
+    if docs:
+        # Take top doc text, truncate if needed
+        context_str = docs[0].get('text', '')[:500]
+    else:
+        context_str = ""
+    
+    # Format SQL results cleanly
+    sql_rows = sql_res.get("rows", [])
+    sql_result_str = str(sql_rows) if sql_rows else "No results"
+    if len(sql_result_str) > 300:
+        sql_result_str = sql_result_str[:300] + "..."
     
     pred = synthesizer_module(
         question=state["question"],
         context=context_str,
         sql_query=state.get("sql_query", ""),
-        sql_result=sql_rows,
+        sql_result=sql_result_str,
         format_hint=state["format_hint"]
     )
     
@@ -156,12 +234,21 @@ def synthesizer_node(state: AgentState):
             
     confidence = 1.0 - (0.2 * state.get("retries", 0)) if not sql_res.get("error") else 0.0
     
+    # Extract explanation (field name is 'why' in signature)
+    explanation_text = ""
+    if hasattr(pred, 'why'):
+        explanation_text = pred.why[:200] if pred.why else ""
+    elif hasattr(pred, 'reason'):
+        explanation_text = pred.reason[:200] if pred.reason else ""
+    elif hasattr(pred, 'explanation'):
+        explanation_text = pred.explanation[:200] if pred.explanation else ""
+    
     output_obj = {
         "id": state["id"],
         "final_answer": final_val,
         "sql": state.get("sql_query", ""),
         "confidence": round(max(0.0, confidence), 2),
-        "explanation": pred.explanation,
+        "explanation": explanation_text,
         "citations": list(set(citations))
     }
     

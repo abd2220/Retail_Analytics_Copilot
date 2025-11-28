@@ -1,0 +1,32 @@
+{
+  "traces": [],
+  "train": [],
+  "demos": [
+    {
+      "augmented": true,
+      "question": "What is the return policy for unopened beverages?",
+      "label": "rag"
+    }
+  ],
+  "signature": {
+    "instructions": "Classify the question into exactly one category. Output ONLY the label, nothing else.\n\n- rag: Policy questions, return windows, KPI definitions (no database needed)\n- sql: Pure data questions with standard columns (revenue, top customers, counts)\n- hybrid: Questions referencing named campaigns or doc-defined formulas that need lookup first",
+    "fields": [
+      {
+        "prefix": "Question:",
+        "description": "The user's natural language query."
+      },
+      {
+        "prefix": "Label:",
+        "description": "Output exactly one word: rag, sql, or hybrid"
+      }
+    ]
+  },
+  "lm": null,
+  "metadata": {
+    "dependency_versions": {
+      "python": "3.13",
+      "dspy": "3.0.4",
+      "cloudpickle": "3.1"
+    }
+  }
+}
