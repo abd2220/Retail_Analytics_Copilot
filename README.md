@@ -4,18 +4,13 @@ A local, offline AI agent that answers retail analytics questions using a hybrid
 
 ## 🧠 Graph Design
 
-The agent is implemented as a stateful graph (`agent/graph_hybrid.py`) with the following nodes:
+![Agent Graph](agent_graph.png)
 
-1.  **Router**: Classifies questions into `rag` (policy), `sql` (data), or `hybrid` (complex).
-    *   *Optimized with DSPy to improve classification accuracy.*
-2.  **Query Generator**: Creates keyword-based search queries for the retriever.
-3.  **Retriever**: Fetches relevant documentation chunks (policies, marketing calendar) using BM25.
-4.  **Planner**: Extracts constraints (date ranges, KPI formulas) from retrieved docs.
-5.  **SQL Generator**: Generates SQLite queries against the Northwind database schema.
-    *   *Includes auto-correction for common table name errors ("Order Details").*
-6.  **Executor**: Runs the SQL query and captures results or errors.
-7.  **Synthesizer**: Combines SQL results and text context to produce the final answer.
-8.  **Repair Loop**: If SQL fails, the graph loops back to the generator with error feedback (max 2 retries).
+The agent is implemented as a stateful graph (`agent/graph_hybrid.py`) designed to handle complex retail queries:
+
+*   **Routing & Retrieval:** The **Router** (optimized with DSPy) classifies questions into RAG, SQL, or Hybrid paths. For text-heavy questions, it triggers the **Retriever** to fetch policy documents and the **Planner** to extract constraints.
+*   **SQL Generation & Repair:** The **SQL Generator** builds dynamic queries using the live database schema. It is coupled with an **Executor** and a **Repair Loop** that automatically corrects SQL errors (up to 2 retries) based on feedback.
+*   **Synthesis:** The **Synthesizer** combines structured data from the database and unstructured text from documents to produce a final, cited answer matching the requested format.
 
 ## 🚀 DSPy Optimization Results
 
